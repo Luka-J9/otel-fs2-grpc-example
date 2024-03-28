@@ -1,0 +1,14 @@
+target/
+
+.sbtopts
+
+# intellij
+.idea/
+
+# Metals
+.metals/
+.bsp/
+.bloop/
+metals.sbt
+.vscode
+.history
