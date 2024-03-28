@@ -22,12 +22,12 @@ import io.opentelemetry.instrumentation.grpc.v1_6.GrpcTelemetry
 
 /**
   * Attempts that were made:
-  * 1. Updated IOLocal on line 58 - extracting the traceparent and doing an update if one is found
-  * 2. Attempted to lift the Context out of the Interceptor - still prefered but I'm not sure how to pass to the handler of the server call. Best I could do is
+  * 1. Updated IOLocal on line 65 - extracting the traceparent and doing an update if one is found
+  * 2. Attempted to lift the Context out of the (Test)Interceptor - still prefered but I'm not sure how to pass to the handler of the server call. Best I could do is
   * leverage strategy 1 with a concurrent map that generates a unique identifier per request which is injected into the header, this header is fetched and applied on line 58.
   * Not super clean but it appears to work.
   * 3. Seems like TraceMapPropigator is the way to go if I don't want to leverage the GRPC interceptor otel provides and wish to extract the headers manually within the interceptor.
-  * Doable but not ideal as this might deviate from how the people in general expect so see in a GRPC trace.
+  * Doable but not ideal as this might deviate from how the people in general expect so see in a GRPC trace (attributes and such). I can attempt to write this if there is no recorse with the TestInterceptor
   */
 object Main extends IOApp {
 
