@@ -78,13 +78,12 @@ object Main extends IOApp {
 
   def binding(serviceDef: Settings): Resource[IO, Server] = {
     serviceDef.interceptors
-    //Fold left is correct here because the interceptors execute in reverse order (so it preserves the order of the list)
-      .foldLeft(
+      .foldRight(
         NettyServerBuilder
           .forPort(7170)
           .addService(serviceDef.serviceDef)
           .addService(ProtoReflectionService.newInstance())
-      ) { (builder, interceptor) =>
+      ) { (interceptor, builder) =>
         builder.intercept(interceptor)
       }
       .resource[IO]
