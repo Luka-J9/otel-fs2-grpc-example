@@ -18,16 +18,23 @@ import io.grpc.protobuf.services.ProtoReflectionService
 import io.grpc.Server
 import io.grpc.ServerInterceptor
 import io.opentelemetry.instrumentation.grpc.v1_6.GrpcTelemetry
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.concurrent.TrieMap
 
-
-/**
-  * Attempts that were made:
-  * 1. Updated IOLocal on line 65 - extracting the traceparent and doing an update if one is found
-  * 2. Attempted to lift the Context out of the (Test)Interceptor - still prefered but I'm not sure how to pass to the handler of the server call. Best I could do is
-  * leverage strategy 1 with a concurrent map that generates a unique identifier per request which is injected into the header, this header is fetched and applied on line 58.
-  * Not super clean but it appears to work.
-  * 3. Seems like TraceMapPropigator is the way to go if I don't want to leverage the GRPC interceptor otel provides and wish to extract the headers manually within the interceptor.
-  * Doable but not ideal as this might deviate from how the people in general expect so see in a GRPC trace (attributes and such). I can attempt to write this if there is no recorse with the TestInterceptor
+/** Attempts that were made:
+  *   1. Updated IOLocal on line 65 - extracting the traceparent and doing an
+  *      update if one is found 2. Attempted to lift the Context out of the
+  *      (Test)Interceptor - still prefered but I'm not sure how to pass to the
+  *      handler of the server call. Best I could do is leverage strategy 1 with
+  *      a concurrent map that generates a unique identifier per request which
+  *      is injected into the header, this header is fetched and applied on line
+  *      58. Not super clean but it appears to work. 3. Seems like
+  *      TraceMapPropigator is the way to go if I don't want to leverage the
+  *      GRPC interceptor otel provides and wish to extract the headers manually
+  *      within the interceptor. Doable but not ideal as this might deviate from
+  *      how the people in general expect so see in a GRPC trace (attributes and
+  *      such). I can attempt to write this if there is no recorse with the
+  *      TestInterceptor
   */
 object Main extends IOApp {
 
@@ -35,8 +42,9 @@ object Main extends IOApp {
     * '{"name":"bob"}' -H "traceparent:
     * 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" 0.0.0.0:7170
     * helloworld.Greeter/SayHello
-    * 
-    * Traces should be logged - just ignore the server reflection one - that is a function of how grpcurl works
+    *
+    * Traces should be logged - just ignore the server reflection one - that is
+    * a function of how grpcurl works
     * @param args
     * @return
     */
@@ -56,20 +64,31 @@ object Main extends IOApp {
       implicit0(ioLocal: IOLocal[Context]) <- IOLocal(Context.root)
       otel <- createOtel4s[IO]
       implicit0(tracer: Tracer[IO]) <- otel.tracerProvider.get("hello.world")
-    } yield (new HelloGrpcServer[IO](), otel)
+    } yield (new HelloGrpcServer[IO](), otel, ioLocal)
 
-    Resource.eval(serverImpl).flatMap { case (server, otel) =>
+    Resource.eval(serverImpl).flatMap { case (server, otel, ioLocal) =>
+      val hashMap = new TrieMap[String, Context]()
       GreeterFs2Grpc
         .serviceResource[IO, Metadata](
           server,
-          (m: Metadata) => IO.println(m.keys()) *> IO.pure(m)
+          { metadata =>
+            ioLocal.get.map(println) *>
+              ioLocal.update { original =>
+                Option(metadata.get(TestInterceptor.key))
+                  .flatMap { id =>
+                    hashMap.get(id)
+                  }
+                  .getOrElse(original)
+              } *>
+              ioLocal.get.map(println) *> IO.pure(metadata)
+          }
         )
         .map {
           Settings(
             _,
             List(
               GrpcTelemetry.create(otel.underlying).newServerInterceptor(),
-              new TestInterceptor()
+              new TestInterceptor(hashMap)
             )
           )
         }
